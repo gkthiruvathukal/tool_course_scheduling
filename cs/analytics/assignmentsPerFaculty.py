@@ -1,122 +1,57 @@
 from sqlite3 import Connection
-from typing import List
 
-import streamlit
 from pandas import DataFrame
-from plotly import express
-from plotly.graph_objects import Figure
 
 from cs.analytics.courseSchedule import CourseSchedule
-from cs.utils import clearContent
 from cs.utils.analytic import Analytic
+from cs.utils.result import AnalyticResult, ChartData
 
 
 class AssignmentsPerFaculty(Analytic):
-    """
-    Class to compute and visualize assignments per faculty member.
-
-    This class provides functionalities to compute the number of courses
-    assigned to each faculty member and visualize these assignments using
-    interactive plots. It leverages a database connection to fetch the required
-    data.
-    """
-
     def __init__(self, conn: Connection) -> None:
-        """
-        Initialize the AssignmentsPerFaculty class with a database connection.
-
-        This constructor initializes the AssignmentsPerFaculty class, setting
-        up the database connection which will be used to compute and visualize
-        assignments per faculty member.
-
-        :param conn: A database connection object.
-        :type conn: Connection
-        """
         self.conn = conn
 
     def compute(self) -> DataFrame:
-        """
-        Compute the number of assignments for each instructor.
-
-        This method takes a course schedule DataFrame, groups the data by
-        "INSTRUCTOR" and "COMBINED ID", counts the number of assignments for
-        each instructor, and returns this information as a DataFrame.
-        Instructors with the name "UNKNOWN" are excluded from the final DataFrame.
-
-        :param courseSchedule: A DataFrame containing the course schedule.
-        :return: A DataFrame containing the number of assignments for each
-        instructor.
-        :rtype: DataFrame
-        """  # noqa: E501
-
         df: DataFrame = CourseSchedule(conn=self.conn).compute()
 
-        dataDF = df.groupby("INSTRUCTOR")["COMBINED ID"].nunique().reset_index()
-        dataDF.columns = ["Instructor Name", "Number of Courses"]
+        # nunique on COMBINED ID means combined sections count as one assignment
+        summary = df.groupby("INSTRUCTOR")["COMBINED ID"].nunique().reset_index()
+        summary.columns = ["INSTRUCTOR", "ASSIGNMENTS"]
+        summary = summary[summary["INSTRUCTOR"] != "UNKNOWN"]
+        summary.sort_values("ASSIGNMENTS", ascending=False, inplace=True)
+        summary.reset_index(drop=True, inplace=True)
+        return summary
 
-        return dataDF[dataDF["Instructor Name"] != "UNKNOWN"]
+    def plot(self, data=None) -> list:
+        return []
 
-    def plot(self, df: DataFrame) -> Figure:
-        """
-        Plot a horizontal bar chart showing the number of courses taught by
-        each instructor.
+    def display(self, filter_zero: bool = False) -> AnalyticResult:
+        df = self.compute()
 
-        This method creates a Plotly figure that displays a horizontal bar
-        chart, with the number of courses on the x-axis and instructor names on
-        the y-axis. The chart provides a visual representation of the number of
-        assignments per instructor.
+        names = df["INSTRUCTOR"].tolist()
+        raw_counts = df["ASSIGNMENTS"].tolist()
 
-        :param df: A DataFrame containing the number of courses taught by each
-            instructor.
-        :type df: pd.DataFrame
-        :return: A Plotly Figure object representing the horizontal bar chart.
-        :rtype: plotly.graph_objs.Figure
-        """
-        df.sort_values(by="Number of Courses", ascending=False, inplace=True)
+        # Cap overloaded faculty at 5 for display; color their bar red
+        counts = [min(c, 5) for c in raw_counts]
+        colors = ["red" if c > 4 else "cyan" for c in raw_counts]
+        x_ticks = list(range(0, 6))
 
-        fig: Figure = express.bar(
-            data_frame=df,
-            y="Instructor Name",
-            x="Number of Courses",
-            orientation="h",
-            title="Number of Assignments per Instructor",
-            labels={
-                "Instructor Name": "Instructor Name",
-                "Number of Courses": "Number of Courses",
-            },
+        chart = ChartData(
+            chart_type="bar",
+            title="Assignments per Faculty  (red bar = 5+ assignments)",
+            x=names,
+            y=counts,
+            x_label="Assignments",
+            y_label="Instructor",
+            colors=colors,
+            x_ticks=x_ticks,
         )
 
-        fig.update_layout(
-            xaxis_title="Number of Courses",
-            yaxis_title="Instructor Name",
+        return AnalyticResult(
+            title="Assignments Per Faculty",
+            subtitle=(
+                "Each distinct COMBINED ID counts as one assignment — "
+                "combined sections are not double-counted"
+            ),
+            charts=[chart],
         )
-
-        return fig
-
-    def run(self) -> None:
-        """
-        Run the workflow to compute and plot assignments per instructor.
-
-        This method clears any existing content, computes the number of courses
-        taught by each instructor, plots the results, and updates the Streamlit
-        session state with the resulting data and figures.
-
-        :return: None
-        """
-        clearContent()
-
-        dfs: List[DataFrame] = [self.compute()]
-        figs: List[Figure] = [self.plot(df=df) for df in dfs]
-
-        streamlit.session_state["analyticTitle"] = (
-            "Number of Assignments Per Faculty Member"
-        )
-        streamlit.session_state["analyticSubtitle"] = (
-            "The number of courses that are assigned to each faculty member \
-                for the current term"
-        )
-        streamlit.session_state["dfList"] = dfs
-        streamlit.session_state["dfListTitles"] = ["Faculty Assignment Count"]
-
-        streamlit.session_state["figList"] = figs
-        streamlit.session_state["figListTitles"] = ["Faculty Assignment Count Plot"]

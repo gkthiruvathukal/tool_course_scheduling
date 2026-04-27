@@ -1,9 +1,10 @@
 from datetime import datetime
+from pathlib import Path
 from sqlite3 import Connection, connect
+from typing import Union
 
 import pandas
 from pandas import DataFrame, Series, read_excel
-from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from cs.utils import datetimeToMinutes
 
@@ -103,7 +104,7 @@ def _createCombinedID(row: Series) -> str:
     return f"({instructor},{facility},{meetingPattern},{startTime},{endTime})"
 
 
-def readExcelToDB(uf: UploadedFile, dbPath: str = ":memory:") -> Connection:
+def readExcelToDB(uf: Union[str, Path], dbPath: str = ":memory:") -> Connection:
     """
     Read an Excel file and populate the database with the data.
 

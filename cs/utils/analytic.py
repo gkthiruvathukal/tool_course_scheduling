@@ -1,5 +1,7 @@
 from abc import ABCMeta, abstractmethod
 
+from cs.utils.result import AnalyticResult
+
 
 class Analytic(metaclass=ABCMeta):
     @abstractmethod
@@ -9,4 +11,4 @@ class Analytic(metaclass=ABCMeta):
     def plot(self, data): ...
 
     @abstractmethod
-    def run(self) -> None: ...
+    def display(self) -> AnalyticResult: ...

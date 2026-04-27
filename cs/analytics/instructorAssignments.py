@@ -2,46 +2,19 @@ from collections import defaultdict
 from sqlite3 import Connection
 from typing import List
 
-import streamlit
 from pandas import DataFrame
 from pandas.core.groupby import DataFrameGroupBy
 
 from cs.analytics.courseSchedule import CourseSchedule
-from cs.utils import clearContent
 from cs.utils.analytic import Analytic
+from cs.utils.result import AnalyticResult
 
 
 class InstructorAssignments(Analytic):
-    """
-    Class to compute and display instructor assignments.
-
-    This class provides functionalities to compute the number of courses
-    assigned to each instructor and visualize these assignments using
-    Streamlit.
-    """
-
     def __init__(self, conn: Connection) -> None:
-        """
-        Initialize the InstructorAssignments class with a database connection.
-
-        Sets up the database connection which will be used to compute and
-        visualize the assignments for each instructor.
-
-        :param conn: A database connection object.
-        :type conn: Connection
-        """
         self.conn: Connection = conn
 
     def compute(self, filterZeroEnrollment: bool = False) -> DataFrameGroupBy:
-        """
-        Initialize the InstructorAssignments class with a database connection.
-
-        Sets up the database connection which will be used to compute and
-        visualize the assignments for each instructor.
-
-        :param conn: A database connection object.
-        :type conn: Connection
-        """
         df: DataFrame = CourseSchedule(conn=self.conn).compute()
 
         if filterZeroEnrollment:
@@ -49,58 +22,44 @@ class InstructorAssignments(Analytic):
 
         return df.groupby(by="INSTRUCTOR")
 
-    def run(self) -> None:
-        """
-        Execute the workflow to compute and display instructor assignments.
+    def plot(self, data=None) -> list:
+        return []
 
-        Computes the instructor assignments data, clears existing content, and
-        updates the Streamlit session state with the resulting data for
-        visualization.
+    def display(self, filter_zero: bool = False) -> AnalyticResult:
+        by_instructor: DataFrameGroupBy = self.compute(filterZeroEnrollment=filter_zero)
 
-        :return: None
-        :rtype: None
-        """
-        clearContent()
-        dfList: List[DataFrame] = []
-        dfListTitles: List[str] = []
+        records = []
 
-        dfs: DataFrameGroupBy = self.compute(
-            filterZeroEnrollment=streamlit.session_state["filterZero"]
-        )
-
-        streamlit.session_state["analyticTitle"] = "Instructor Assignments"
-        streamlit.session_state["analyticSubtitle"] = "Show instructor assignments"
-
-        streamlit.session_state["filterZero"] = streamlit.checkbox(
-            "Filter out rows with ENROLL TOTAL as 0", value=False
-        )
-
-        # streamlit.session_state["filterZero"] = False
-
-        instructor_counts = defaultdict(int)
         instructor: str
-        df: DataFrame
-        for instructor, df in dfs:
-            group: DataFrameGroupBy = df.groupby(by="COMBINED ID")
+        instructor_df: DataFrame
+        for instructor, instructor_df in by_instructor:
+            # Each distinct COMBINED ID is one assignment for this instructor.
+            combined_groups = list(instructor_df.groupby(by="COMBINED ID"))
+            total = len(combined_groups)
 
-            _df: DataFrame
-            for _, _df in group:
-                dfList.append(_df)
-                instructor_counts[instructor] += 1
+            for assign_num, (_, group_df) in enumerate(combined_groups, start=1):
+                assign_label = f"{assign_num}/{total}"
 
-        dfListTitles = []
+                for _, row in group_df.iterrows():
+                    records.append(
+                        {
+                            "INSTRUCTOR": instructor,
+                            "ASSIGN": assign_label,
+                            "SECTION": str(row["FQ CLASS SECTION"]),
+                            "TITLE": str(row["CLASS TITLE"]),
+                            "ENROLL": int(row["ENROLL TOTAL"]),
+                            "WEIGHTED": int(row["WEIGHTED ENROLL TOTAL"]),
+                            "PATTERN": str(row["TRAD MEETING PATTERN"]),
+                            "START": str(row["CLASS START TIME"]),
+                            "END": str(row["CLASS END TIME"]),
+                        }
+                    )
 
-        for instructor, count in instructor_counts.items():
-            for i in range(1, count + 1):
-                dfListTitles.append(f"{instructor} ({i}/{count})")
-
-        streamlit.session_state["dfList"] = dfList
-        streamlit.session_state["dfListTitles"] = dfListTitles
-
-    def plot(self, data: None) -> None:
-        """
-        Empty function required by Analytic ABC
-        :param data: Null
-        :type data: None
-        """
-        pass
+        return AnalyticResult(
+            title="Instructor Assignments",
+            subtitle=(
+                "Each distinct teaching slot is one assignment — "
+                "combined sections share the same assignment number"
+            ),
+            dataframes=[DataFrame(records)],
+        )
